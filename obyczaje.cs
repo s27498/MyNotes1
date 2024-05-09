@@ -1,3 +1,6 @@
+
+connection string: Data Source=(localdb)\MSSQLLocalDB;Initial Catalog=apbd;Integrated Security=True;Connect Timeout=30;Encrypt=False;Trust Server Certificate=False;Application Intent=ReadWrite;Multi Subnet Failover=False
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////// appsettings .json
 
 {
@@ -253,3 +256,68 @@ public class ClassnameController : ControllerBase
     }
 }
 
+//// DELETE ////
+
+    public async Task deleteStudent(int id)
+    {
+        var query1 = "DELETE FROM Students WHERE ID = @id";
+        var query2 = "DELETE FROM GroupAssignments WHERE Student_ID = @id";
+        await using SqlConnection connection = new SqlConnection(_configuration.GetConnectionString("Default"));
+        await using SqlCommand command = new SqlCommand();
+        command.Connection = connection;
+        command.CommandText = query1;
+        command.Parameters.AddWithValue("@id", id);
+        await connection.OpenAsync();
+        
+        await command.ExecuteNonQueryAsync(); // -> execute command, nie zwraca danych, scalar zwraca
+        command.CommandText = query2;
+        await command.ExecuteNonQueryAsync();
+
+    }
+	
+//// INSERT ////
+
+	public async Task AddEntityWithProcedures<TEntity>(TEntity entityWithProcedures)
+{
+    var insert = @"INSERT INTO EntityTable VALUES(@Name, @Type, @Date, @OwnerId);
+                   SELECT @@IDENTITY AS ID;"; // -> to daje auto id
+    
+    await using SqlConnection connection = new SqlConnection(_configuration.GetConnectionString("Default"));
+    await using SqlCommand command = new SqlCommand();
+    
+    command.Connection = connection;
+    command.CommandText = insert;
+    
+    command.Parameters.AddWithValue("@Name", entityWithProcedures.Name);
+    command.Parameters.AddWithValue("@Type", entityWithProcedures.Type);
+    command.Parameters.AddWithValue("@Date", entityWithProcedures.Date);
+    command.Parameters.AddWithValue("@OwnerId", entityWithProcedures.OwnerID);
+    
+    await connection.OpenAsync();
+
+    var transaction = await connection.BeginTransactionAsync();
+    command.Transaction = transaction as SqlTransaction;
+    
+    try
+    {
+        var id = await command.ExecuteScalarAsync();
+
+        foreach (var procedure in entityWithProcedures.Procedures)
+        {
+            command.Parameters.Clear();
+            command.CommandText = "INSERT INTO Procedure_Entity VALUES(@ProcedureId, @EntityId, @Date)";
+            command.Parameters.AddWithValue("@ProcedureId", procedure.ProcedureID);
+            command.Parameters.AddWithValue("@EntityId", id);
+            command.Parameters.AddWithValue("@Date", procedure.Date);
+
+            await command.ExecuteNonQueryAsync();
+        }
+
+        await transaction.CommitAsync();
+    }
+    catch (Exception)
+    {
+        await transaction.RollbackAsync();
+        throw;
+    }
+}
